@@ -1,0 +1,30 @@
+# Environnement virtuel
+venv/
+.env/
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Données
+dataset/
+data/
+
+# Modèles entraînés
+*.h5
+*.keras
+*.pt
+*.pth
+
+# Logs & outputs
+logs/
+outputs/
+results/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
