@@ -1,0 +1,11 @@
+{
+  "total_images": 6964,
+  "per_split": {
+    "TRAIN": 5166,
+    "VAL": 899,
+    "TEST": 899
+  },
+  "num_augmented": 3444,
+  "num_clips": 4,
+  "merge_rate": 1.0
+}

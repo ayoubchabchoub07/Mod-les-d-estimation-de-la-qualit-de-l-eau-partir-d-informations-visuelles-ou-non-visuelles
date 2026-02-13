@@ -9,6 +9,7 @@ __pycache__/
 # Données
 dataset/
 data/
+Tilapia RAS Dataset/
 
 # Modèles entraînés
 *.h5
