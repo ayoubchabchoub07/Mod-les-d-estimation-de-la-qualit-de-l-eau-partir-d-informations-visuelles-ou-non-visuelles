@@ -223,7 +223,7 @@ if __name__ == "__main__":
     )
     
     # Test sur une image
-    test_image_path = "test.jpg"  # Remplacer par un chemin réel
+    test_image_path = "D:\\p2M\\Tilapia RAS Dataset\\Frames\\Original\\GX010206\\images\\GX010206_00000.jpg"  # Remplacer par un chemin réel
     
     try:
         processed = preprocessor(test_image_path)

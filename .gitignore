@@ -1,10 +1,15 @@
 # Environnement virtuel
 venv/
+.venv/
 .env/
+env/
 
 # Cache Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
 # Données
 dataset/
@@ -16,11 +21,17 @@ Tilapia RAS Dataset/
 *.keras
 *.pt
 *.pth
+checkpoints/
 
 # Logs & outputs
 logs/
 outputs/
 results/
+runs/
+
+# Tests & visualisations temporaires
+preprocessing_test.png
+test_*.png
 
 # Fichiers système
 .DS_Store
@@ -29,3 +40,10 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
