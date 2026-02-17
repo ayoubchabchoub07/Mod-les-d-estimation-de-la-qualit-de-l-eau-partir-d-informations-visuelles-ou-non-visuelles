@@ -53,17 +53,32 @@ class UnderwaterPreprocessor:
         self.normalize_imagenet = normalize_imagenet
         self.return_numpy = return_numpy
         
-        # Créer l'objet CLAHE
+        # Créer l'objet CLAHE (lazy-safe)
+        self.clahe = None
         if self.use_clahe:
-            self.clahe = cv2.createCLAHE(
-                clipLimit=clahe_clip_limit,
-                tileGridSize=clahe_tile_size
-            )
+            self._init_clahe()
         
         # Paramètres ImageNet
         self.imagenet_mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         self.imagenet_std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
     
+    def _init_clahe(self) -> None:
+        self.clahe = cv2.createCLAHE(
+            clipLimit=self.clahe_clip_limit,
+            tileGridSize=self.clahe_tile_size,
+        )
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # cv2.CLAHE n'est pas picklable
+        state["clahe"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if self.use_clahe:
+            self._init_clahe()
+
     def apply_clahe(self, image: np.ndarray) -> np.ndarray:
         """
         Applique CLAHE sur le canal L en espace LAB
@@ -79,6 +94,8 @@ class UnderwaterPreprocessor:
         l, a, b = cv2.split(lab)
         
         # Appliquer CLAHE sur le canal L (luminosité)
+        if self.clahe is None:
+            self._init_clahe()
         l_clahe = self.clahe.apply(l)
         
         # Reconstruire l'image
