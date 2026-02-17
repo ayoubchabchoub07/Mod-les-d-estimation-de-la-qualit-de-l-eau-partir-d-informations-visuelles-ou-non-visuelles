@@ -306,9 +306,9 @@ def finalize_and_save(df: pd.DataFrame, dataset_root: Path, output_dir: Path) ->
     merge_rate = float(merged_ok / total_images) if total_images else 0.0
 
     stats = {
-        "total_images": total_images,
+        "total_images": total_images,    
         "per_split": per_split,
-        "num_augmented": num_aug,
+        "num_augmented": num_aug, 
         "num_clips": num_clips,
         "merge_rate": merge_rate,
     }
