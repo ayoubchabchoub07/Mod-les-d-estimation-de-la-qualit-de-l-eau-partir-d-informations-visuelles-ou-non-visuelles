@@ -7,3 +7,4 @@ tensorflow
 torch
 torchvision
 tqdm
+timm
