@@ -1,11 +1,12 @@
 {
-  "total_images": 6964,
+  "total_images": 10560,
+  "split_strategy": "temporal",
   "per_split": {
-    "TRAIN": 5166,
-    "VAL": 899,
-    "TEST": 899
+    "TRAIN": 9150,
+    "TEST": 709,
+    "VAL": 701
   },
-  "num_augmented": 3444,
+  "num_augmented": 7040,
   "num_clips": 4,
   "merge_rate": 1.0
 }
