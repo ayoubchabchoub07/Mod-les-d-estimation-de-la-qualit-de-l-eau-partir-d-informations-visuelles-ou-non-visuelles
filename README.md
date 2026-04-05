@@ -56,20 +56,41 @@ pip install -r requirements.txt
 - `tqdm` : Barres de progression
 - `matplotlib` : Visualisation
 
-## 📊 Pipeline
+## 📊 Pipeline Global
+
+```
+FLUX COMPLET DU PIPELINE :
+
+1. DONNÉES BRUTES
+   ↓ (phase1_prepare_dataset.py)
+2. DATASET INDEXÉ
+   ↓ (train.py / predict.py)
+3. MODÈLE ENTRAÎNÉ
+   ↓ (predict.py)
+4. PRÉDICTIONS
+```
+
+---
 
 ### Phase 1 : Préparation du Dataset
 
-Indexe les images (originales + augmentées), fusionne avec les métadonnées physico-chimiques, et crée un split TRAIN/VAL/TEST au niveau des clips.
+**📍 Localisation du code :** [`water_quality_cv/phase1_prepare_dataset.py`](water_quality_cv/phase1_prepare_dataset.py)
+
+**Entrées :**
+- Images originales : `Tilapia RAS Dataset/Frames/Original/{GX010206,GX020019,GX020206,GX030013}/images/`
+- Images augmentées : `Tilapia RAS Dataset/Frames/Augmented/{GaussianBlur,AveragedBlur}/{GX010206,...}/images/`
+- Métadonnées : `Tilapia RAS Dataset/Documentation/meta_tilapia_set.csv`
+
+**Exécution :**
 
 ```powershell
 cd water_quality_cv
 python phase1_prepare_dataset.py
 ```
 
-**Sorties :**
-- `processed/images_labels.csv` : Dataset complet avec chemins relatifs et labels
-- `processed/stats.json` : Statistiques (split, augmentations, fusion)
+**Sorties générées :**
+- `water_quality_cv/processed/images_labels.csv` : Dataset complet avec chemins relatifs et labels
+- `water_quality_cv/processed/stats.json` : Statistiques (split, augmentations, fusion)
 
 **Règles de split :**
 - Split au niveau des **clips** (pas des frames) pour éviter le data leakage
@@ -77,13 +98,20 @@ python phase1_prepare_dataset.py
 - TRAIN contient images originales + augmentées
 - Proportions : ~70% TRAIN / 15% VAL / 15% TEST (minimum 1 clip en VAL et TEST)
 
+---
+
 ### Phase 2 : Prétraitement d'Images
+
+**📍 Localisation du code :** [`water_quality_cv/preprocess.py`](water_quality_cv/preprocess.py)
+
+**Classe à utiliser :** `UnderwaterPreprocessor`
 
 Pipeline de prétraitement optimisé pour images sous-marines :
 
 ```python
-from preprocess import UnderwaterPreprocessor
+from water_quality_cv.preprocess import UnderwaterPreprocessor
 
+# Initialisation du pipeline
 preprocessor = UnderwaterPreprocessor(
     target_size=(260, 260),          # Taille pour EfficientNet-B2
     use_white_balance=True,          # Correction colorimétrique
@@ -92,39 +120,78 @@ preprocessor = UnderwaterPreprocessor(
     normalize_imagenet=True          # Normalisation ImageNet
 )
 
-# Retourne un tensor PyTorch (3, 260, 260)
+# Traitement d'une image
+# Retourne un tensor PyTorch de shape (3, 260, 260)
 tensor = preprocessor("path/to/image.jpg")
 ```
 
-**Étapes du pipeline :**
+**Étapes du pipeline (séquentielles) :**
 1. Chargement et redimensionnement (INTER_AREA)
-2. **White Balance** (Simplest Color Balance)
-3. **CLAHE** sur canal L en espace LAB
-4. Normalisation [0, 1]
-5. Normalisation ImageNet (mean/std)
-6. Conversion HWC → CHW (PyTorch)
+2. **White Balance** (Simplest Color Balance) → correction colorimétrique
+3. **CLAHE** sur canal L en espace LAB → amélioration du contraste
+4. Normalisation [0, 1] → conversion uint8 → float32
+5. Normalisation ImageNet (mean/std) → standardisation
+6. Conversion HWC → CHW (PyTorch) → format réseau
 
-**Tester le preprocessing :**
+**Fichier de test :**
 
 ```powershell
-python test_preprocess.py
+cd water_quality_cv
+python test_preprocess.py  # Valide le pipeline sur images du dataset
 ```
+
+---
 
 ### Phase 3 : Entraînement (à venir)
 
-Entraînement d'un modèle EfficientNet-B2 pour régression multi-tâches.
+**📍 Localisation du code :** [`water_quality_cv/train.py`](water_quality_cv/train.py)
+
+**Entrées :**
+- Dataset indexé : `water_quality_cv/processed/images_labels.csv`
+
+**Architecture :** EfficientNet-B2 pour régression multi-tâches
+
+Entraînement d'un modèle pour prédire les paramètres physico-chimiques :
 
 ```powershell
-python train.py
+cd water_quality_cv
+python train.py \
+  --batch_size 32 \
+  --epochs 100 \
+  --learning_rate 0.001 \
+  --model_name efficientnet_b2
 ```
 
-### Phase 4 : Inférence (à venir)
+**Sorties :**
+- Meilleur modèle : `water_quality_cv/checkpoints/best_model.pth`
+- Modèle dernier epoch : `water_quality_cv/checkpoints/last_model.pth`
+- Logs d'entraînement : `ablation_results/{timestamp}/`
 
-Prédiction des paramètres physico-chimiques sur nouvelles images.
+---
+
+### Phase 4 : Inférence (Prédiction)
+
+**📍 Localisation du code :** [`water_quality_cv/predict.py`](water_quality_cv/predict.py)
+
+**Entrées :**
+- Modèle entraîné : `water_quality_cv/checkpoints/best_model.pth`
+- Image à prédire : n'importe quel format (JPG, PNG)
+
+Prédiction des paramètres physico-chimiques sur nouvelles images :
 
 ```powershell
-python predict.py --image path/to/image.jpg --model checkpoints/best_model.pth
+cd water_quality_cv
+python predict.py \
+  --image path/to/image.jpg \
+  --model checkpoints/best_model.pth \
+  --output predictions.json
 ```
+
+**Paramètres prédits :**
+- `temperature_C` : Température (°C)
+- `pH` : Acidité
+- `DO_mgL` : Oxyde dissous (mg/L)
+- `turbidity_NTU` : Turbidité (NTU)
 
 ## 📈 Dataset Tilapia RAS
 
@@ -156,17 +223,42 @@ python -c "import json; print(json.load(open('processed/stats.json', 'r')))"
 - **Augmentations** : GaussianBlur et AveragedBlur uniquement en TRAIN
 - **Normalisation** : ImageNet (requis pour transfer learning EfficientNet)
 
-## 🛠️ Développement
+## 🛠️ Utilisation Complète du Pipeline
+
+### Étape par étape
 
 ```powershell
-# Activer l'environnement
+# 1. Activer l'environnement virtuel
 .\.venv\Scripts\Activate.ps1
 
-# Lancer la phase 1
-python water_quality_cv/phase1_prepare_dataset.py
+# 2. Phase 1 : Préparer le dataset
+cd Mod-les-d-estimation-de-la-qualit-de-l-eau-partir-d-informations-visuelles-ou-non-visuelles
+cd water_quality_cv
+python phase1_prepare_dataset.py
+# Génère : processed/images_labels.csv et processed/stats.json
 
-# Tests
-python water_quality_cv/test_preprocess.py
+# 3. Phase 2 : Tester le prétraitement
+python test_preprocess.py
+# Valide le pipeline sur 5 images du TRAIN set
+
+# 4. Phase 3 : Entraîner le modèle (une fois implémenté)
+python train.py --epochs 100 --batch_size 32
+# Génère : checkpoints/best_model.pth
+
+# 5. Phase 4 : Faire des prédictions (une fois implémenté)
+python predict.py --image "path/to/image.jpg" --model checkpoints/best_model.pth
+# Affiche les prédictions
+```
+
+### Vérifier les résultats de chaque phase
+
+```powershell
+# Vérifier stats du dataset (Phase 1)
+python -c "import json; stats=json.load(open('processed/stats.json')); print(f'Train: {stats[\"train_count\"]}, Val: {stats[\"val_count\"]}, Test: {stats[\"test_count\"]}')"
+
+# Vérifier les images indexées (Phase 1)
+cd water_quality_cv
+python -c "import pandas as pd; df=pd.read_csv('processed/images_labels.csv'); print(f'Total: {len(df)}\n{df.head()}')"
 ```
 
 ## 📚 Références

@@ -1,0 +1,290 @@
+20:58:47 | ================================================================================
+20:58:47 | 🔬 ÉTUDE V3 : ABLATION λ_DO — SPLIT TEMPOREL — pH=0 & TEMP=0 FIXES
+20:58:47 | 📁 Résultats dans : ablation_results\20260331_205847/
+20:58:47 | 🕐 Démarrage      : 2026-03-31 20:58:47
+20:58:47 | ================================================================================
+20:58:47 | 
+################################################################################
+20:58:47 | # ABLATION lambda_DO — pH=0, TEMP=0, TURB=1.0 FIXES
+20:58:47 | # Objectif : valider DO=0.2 et trouver le lambda_DO optimal
+20:58:47 | # Grille : DO in {0.0, 0.2, 0.4, 0.5, 0.7, 0.9}
+20:58:47 | ################################################################################
+20:58:47 | ⏱️  Temps estimé : ~14.0h max  (6 configs x 10 epochs x 14 min)
+20:58:47 |    (early stopping patience=4 -> temps réel probablement ~10.5h)
+
+20:58:47 | 
+[1/6] Démarrage : 1_turb_only
+20:58:47 | 
+================================================================================
+20:58:47 | 📊 MODÈLE : 1_turb_only
+20:58:47 | ================================================================================
+20:58:47 | 🎯 Poids (lambda) :
+20:58:47 |    turbidity_NTU        : 1.00  ✅ ACTIF
+20:58:47 |    pH                   : 0.00  ❌ INACTIF
+20:58:47 |    temperature_C        : 0.00  ❌ INACTIF
+20:58:47 |    DO_mgL               : 0.00  ❌ INACTIF
+20:58:49 | 💻 Device : cuda
+20:58:50 | 
+🚀 Entraînement (10 epochs)...
+
+21:20:35 |   Epoch 01/10: Train=0.5434  Val=0.1674  Test=0.1489 ✅ BEST  [ETA ~196 min]
+21:38:22 |   Epoch 02/10: Train=0.1486  Val=0.0338  Test=0.0373 ✅ BEST  [ETA ~158 min]
+22:26:05 |   Epoch 03/10: Train=0.1205  Val=0.0311  Test=0.0269 ✅ BEST  [ETA ~204 min]
+23:19:38 |   Epoch 04/10: Train=0.1059  Val=0.0082  Test=0.0078 ✅ BEST  [ETA ~211 min]
+23:57:27 |   Epoch 05/10: Train=0.1005  Val=0.0130  Test=0.0113 (patience 1/4)  [ETA ~179 min]
+01:08:30 |   Epoch 06/10: Train=0.1001  Val=0.0047  Test=0.0079 ✅ BEST  [ETA ~166 min]
+09:04:10 |   Epoch 07/10: Train=0.0980  Val=0.0165  Test=0.0132 (patience 1/4)  [ETA ~311 min]
+09:26:15 |   Epoch 08/10: Train=0.0929  Val=0.0036  Test=0.0032 ✅ BEST  [ETA ~187 min]
+09:44:51 |   Epoch 09/10: Train=0.0924  Val=0.0033  Test=0.0032 ✅ BEST  [ETA ~85 min]
+10:03:32 |   Epoch 10/10: Train=0.0931  Val=0.0012  Test=0.0012 ✅ BEST  [ETA ~0 min]
+10:03:32 | 
+📊 Évaluation finale (meilleur epoch : 10)...
+10:04:15 | 
+============================================================
+10:04:15 | RÉSULTATS PAR TÂCHE (TEST)
+10:04:15 | ============================================================
+10:04:15 |   🎯 turbidity_NTU:
+10:04:15 |      MAE=0.0370  RMSE=0.0479  R²=0.9986
+10:04:15 | 💾 Sauvegarde intermédiaire (1/6 modèles)
+10:04:15 | 
+[2/6] Démarrage : 2_DO_02
+10:04:15 | 
+================================================================================
+10:04:15 | 📊 MODÈLE : 2_DO_02
+10:04:15 | ================================================================================
+10:04:15 | 🎯 Poids (lambda) :
+10:04:15 |    turbidity_NTU        : 1.00  ✅ ACTIF
+10:04:15 |    pH                   : 0.00  ❌ INACTIF
+10:04:15 |    temperature_C        : 0.00  ❌ INACTIF
+10:04:15 |    DO_mgL               : 0.20  ✅ ACTIF
+10:04:15 | 💻 Device : cuda
+10:04:17 | 
+🚀 Entraînement (10 epochs)...
+
+10:24:00 |   Epoch 01/10: Train=0.5629  Val=0.0569  Test=0.0567 ✅ BEST  [ETA ~177 min]
+10:43:39 |   Epoch 02/10: Train=0.1398  Val=0.0319  Test=0.0245 ✅ BEST  [ETA ~157 min]
+11:03:19 |   Epoch 03/10: Train=0.1246  Val=0.0328  Test=0.0310 (patience 1/4)  [ETA ~138 min]
+11:22:59 |   Epoch 04/10: Train=0.1187  Val=0.0059  Test=0.0045 ✅ BEST  [ETA ~118 min]
+11:42:39 |   Epoch 05/10: Train=0.1104  Val=0.0061  Test=0.0072 (patience 1/4)  [ETA ~98 min]
+12:01:06 |   Epoch 06/10: Train=0.1079  Val=0.0031  Test=0.0024 ✅ BEST  [ETA ~78 min]
+12:18:23 |   Epoch 07/10: Train=0.1046  Val=0.0115  Test=0.0084 (patience 1/4)  [ETA ~57 min]
+12:35:39 |   Epoch 08/10: Train=0.1010  Val=0.0031  Test=0.0021 (patience 2/4)  [ETA ~38 min]
+12:52:54 |   Epoch 09/10: Train=0.0991  Val=0.0026  Test=0.0020 ✅ BEST  [ETA ~19 min]
+13:10:12 |   Epoch 10/10: Train=0.0967  Val=0.0020  Test=0.0018 ✅ BEST  [ETA ~0 min]
+13:10:12 | 
+📊 Évaluation finale (meilleur epoch : 10)...
+13:10:53 | 
+============================================================
+13:10:53 | RÉSULTATS PAR TÂCHE (TEST)
+13:10:53 | ============================================================
+13:10:53 |   🎯 turbidity_NTU:
+13:10:53 |      MAE=0.0409  RMSE=0.0532  R²=0.9982
+13:10:53 |   🎯 DO_mgL:
+13:10:53 |      MAE=0.0546  RMSE=0.0652  R²=0.9778
+13:10:53 | 💾 Sauvegarde intermédiaire (2/6 modèles)
+13:10:53 | 
+[3/6] Démarrage : 3_DO_04
+13:10:53 | 
+================================================================================
+13:10:53 | 📊 MODÈLE : 3_DO_04
+13:10:53 | ================================================================================
+13:10:53 | 🎯 Poids (lambda) :
+13:10:53 |    turbidity_NTU        : 1.00  ✅ ACTIF
+13:10:53 |    pH                   : 0.00  ❌ INACTIF
+13:10:53 |    temperature_C        : 0.00  ❌ INACTIF
+13:10:53 |    DO_mgL               : 0.40  ✅ ACTIF
+13:10:53 | 💻 Device : cuda
+13:10:54 | 
+🚀 Entraînement (10 epochs)...
+
+13:29:38 |   Epoch 01/10: Train=0.6251  Val=0.1239  Test=0.1286 ✅ BEST  [ETA ~169 min]
+13:48:56 |   Epoch 02/10: Train=0.1705  Val=0.0266  Test=0.0264 ✅ BEST  [ETA ~152 min]
+14:08:22 |   Epoch 03/10: Train=0.1369  Val=0.0144  Test=0.0099 ✅ BEST  [ETA ~134 min]
+14:27:49 |   Epoch 04/10: Train=0.1289  Val=0.0702  Test=0.0630 (patience 1/4)  [ETA ~115 min]
+14:47:17 |   Epoch 05/10: Train=0.1268  Val=0.0100  Test=0.0066 ✅ BEST  [ETA ~96 min]
+15:07:24 |   Epoch 06/10: Train=0.1172  Val=0.0047  Test=0.0029 ✅ BEST  [ETA ~78 min]
+15:28:54 |   Epoch 07/10: Train=0.1140  Val=0.0041  Test=0.0062 ✅ BEST  [ETA ~59 min]
+15:48:53 |   Epoch 08/10: Train=0.1110  Val=0.0042  Test=0.0037 (patience 1/4)  [ETA ~39 min]
+16:08:15 |   Epoch 09/10: Train=0.1062  Val=0.0032  Test=0.0025 ✅ BEST  [ETA ~20 min]
+16:27:43 |   Epoch 10/10: Train=0.1090  Val=0.0034  Test=0.0039 (patience 1/4)  [ETA ~0 min]
+16:27:43 | 
+📊 Évaluation finale (meilleur epoch : 9)...
+16:28:23 | 
+============================================================
+16:28:23 | RÉSULTATS PAR TÂCHE (TEST)
+16:28:23 | ============================================================
+16:28:23 |   🎯 turbidity_NTU:
+16:28:23 |      MAE=0.0459  RMSE=0.0598  R²=0.9978
+16:28:23 |   🎯 DO_mgL:
+16:28:23 |      MAE=0.0509  RMSE=0.0629  R²=0.9794
+16:28:23 | 💾 Sauvegarde intermédiaire (3/6 modèles)
+16:28:23 | 
+[4/6] Démarrage : 4_DO_05
+16:28:23 | 
+================================================================================
+16:28:23 | 📊 MODÈLE : 4_DO_05
+16:28:23 | ================================================================================
+16:28:23 | 🎯 Poids (lambda) :
+16:28:23 |    turbidity_NTU        : 1.00  ✅ ACTIF
+16:28:23 |    pH                   : 0.00  ❌ INACTIF
+16:28:23 |    temperature_C        : 0.00  ❌ INACTIF
+16:28:23 |    DO_mgL               : 0.50  ✅ ACTIF
+16:28:23 | 💻 Device : cuda
+16:28:24 | 
+🚀 Entraînement (10 epochs)...
+
+16:46:37 |   Epoch 01/10: Train=0.6265  Val=0.0772  Test=0.0637 ✅ BEST  [ETA ~164 min]
+17:05:08 |   Epoch 02/10: Train=0.1605  Val=0.0158  Test=0.0123 ✅ BEST  [ETA ~147 min]
+17:23:13 |   Epoch 03/10: Train=0.1406  Val=0.0097  Test=0.0111 ✅ BEST  [ETA ~128 min]
+17:41:26 |   Epoch 04/10: Train=0.1331  Val=0.0469  Test=0.0451 (patience 1/4)  [ETA ~110 min]
+17:59:41 |   Epoch 05/10: Train=0.1234  Val=0.0138  Test=0.0141 (patience 2/4)  [ETA ~91 min]
+18:17:54 |   Epoch 06/10: Train=0.1190  Val=0.0070  Test=0.0059 ✅ BEST  [ETA ~73 min]
+18:36:01 |   Epoch 07/10: Train=0.1155  Val=0.0069  Test=0.0064 ✅ BEST  [ETA ~55 min]
+18:54:16 |   Epoch 08/10: Train=0.1140  Val=0.0042  Test=0.0035 ✅ BEST  [ETA ~36 min]
+19:12:20 |   Epoch 09/10: Train=0.1137  Val=0.0052  Test=0.0050 (patience 1/4)  [ETA ~18 min]
+19:30:23 |   Epoch 10/10: Train=0.1074  Val=0.0060  Test=0.0052 (patience 2/4)  [ETA ~0 min]
+19:30:23 | 
+📊 Évaluation finale (meilleur epoch : 8)...
+19:31:15 | 
+============================================================
+19:31:15 | RÉSULTATS PAR TÂCHE (TEST)
+19:31:15 | ============================================================
+19:31:15 |   🎯 turbidity_NTU:
+19:31:15 |      MAE=0.0591  RMSE=0.0733  R²=0.9966
+19:31:15 |   🎯 DO_mgL:
+19:31:15 |      MAE=0.0429  RMSE=0.0547  R²=0.9844
+19:31:15 | 💾 Sauvegarde intermédiaire (4/6 modèles)
+19:31:15 | 
+[5/6] Démarrage : 5_DO_07
+19:31:15 | 
+================================================================================
+19:31:15 | 📊 MODÈLE : 5_DO_07
+19:31:15 | ================================================================================
+19:31:15 | 🎯 Poids (lambda) :
+19:31:15 |    turbidity_NTU        : 1.00  ✅ ACTIF
+19:31:15 |    pH                   : 0.00  ❌ INACTIF
+19:31:15 |    temperature_C        : 0.00  ❌ INACTIF
+19:31:15 |    DO_mgL               : 0.70  ✅ ACTIF
+19:31:15 | 💻 Device : cuda
+19:31:16 | 
+🚀 Entraînement (10 epochs)...
+
+19:49:42 |   Epoch 01/10: Train=0.6659  Val=0.0596  Test=0.0515 ✅ BEST  [ETA ~166 min]
+20:07:51 |   Epoch 02/10: Train=0.1756  Val=0.0214  Test=0.0199 ✅ BEST  [ETA ~146 min]
+20:25:49 |   Epoch 03/10: Train=0.1523  Val=0.0168  Test=0.0185 ✅ BEST  [ETA ~127 min]
+20:43:55 |   Epoch 04/10: Train=0.1452  Val=0.0154  Test=0.0094 ✅ BEST  [ETA ~109 min]
+21:01:51 |   Epoch 05/10: Train=0.1353  Val=0.0275  Test=0.0255 (patience 1/4)  [ETA ~91 min]
+21:19:49 |   Epoch 06/10: Train=0.1328  Val=0.0046  Test=0.0048 ✅ BEST  [ETA ~72 min]
+21:37:51 |   Epoch 07/10: Train=0.1230  Val=0.0146  Test=0.0133 (patience 1/4)  [ETA ~54 min]
+21:55:53 |   Epoch 08/10: Train=0.1216  Val=0.0058  Test=0.0050 (patience 2/4)  [ETA ~36 min]
+22:14:27 |   Epoch 09/10: Train=0.1177  Val=0.0026  Test=0.0028 ✅ BEST  [ETA ~18 min]
+22:35:23 |   Epoch 10/10: Train=0.1169  Val=0.0026  Test=0.0021 ✅ BEST  [ETA ~0 min]
+22:35:23 | 
+📊 Évaluation finale (meilleur epoch : 10)...
+22:36:21 | 
+============================================================
+22:36:21 | RÉSULTATS PAR TÂCHE (TEST)
+22:36:21 | ============================================================
+22:36:21 |   🎯 turbidity_NTU:
+22:36:21 |      MAE=0.0392  RMSE=0.0504  R²=0.9984
+22:36:21 |   🎯 DO_mgL:
+22:36:21 |      MAE=0.0407  RMSE=0.0487  R²=0.9877
+22:36:22 | 💾 Sauvegarde intermédiaire (5/6 modèles)
+22:36:22 | 
+[6/6] Démarrage : 6_DO_09
+22:36:22 | 
+================================================================================
+22:36:22 | 📊 MODÈLE : 6_DO_09
+22:36:22 | ================================================================================
+22:36:22 | 🎯 Poids (lambda) :
+22:36:22 |    turbidity_NTU        : 1.00  ✅ ACTIF
+22:36:22 |    pH                   : 0.00  ❌ INACTIF
+22:36:22 |    temperature_C        : 0.00  ❌ INACTIF
+22:36:22 |    DO_mgL               : 0.90  ✅ ACTIF
+22:36:22 | 💻 Device : cuda
+22:36:23 | 
+🚀 Entraînement (10 epochs)...
+
+22:56:00 |   Epoch 01/10: Train=0.7483  Val=0.0819  Test=0.0557 ✅ BEST  [ETA ~176 min]
+23:15:42 |   Epoch 02/10: Train=0.1868  Val=0.0218  Test=0.0178 ✅ BEST  [ETA ~157 min]
+23:35:52 |   Epoch 03/10: Train=0.1768  Val=0.0254  Test=0.0085 (patience 1/4)  [ETA ~139 min]
+23:56:19 |   Epoch 04/10: Train=0.1619  Val=0.0123  Test=0.0118 ✅ BEST  [ETA ~120 min]
+00:15:31 |   Epoch 05/10: Train=0.1507  Val=0.0231  Test=0.0160 (patience 1/4)  [ETA ~99 min]
+00:33:15 |   Epoch 06/10: Train=0.1425  Val=0.0153  Test=0.0149 (patience 2/4)  [ETA ~78 min]
+00:50:59 |   Epoch 07/10: Train=0.1412  Val=0.0074  Test=0.0061 ✅ BEST  [ETA ~58 min]
+01:08:32 |   Epoch 08/10: Train=0.1351  Val=0.0041  Test=0.0048 ✅ BEST  [ETA ~38 min]
+01:26:18 |   Epoch 09/10: Train=0.1329  Val=0.0045  Test=0.0041 (patience 1/4)  [ETA ~19 min]
+01:44:05 |   Epoch 10/10: Train=0.1301  Val=0.0052  Test=0.0042 (patience 2/4)  [ETA ~0 min]
+01:44:05 | 
+📊 Évaluation finale (meilleur epoch : 8)...
+01:44:43 | 
+============================================================
+01:44:43 | RÉSULTATS PAR TÂCHE (TEST)
+01:44:43 | ============================================================
+01:44:43 |   🎯 turbidity_NTU:
+01:44:43 |      MAE=0.0546  RMSE=0.0667  R²=0.9972
+01:44:43 |   🎯 DO_mgL:
+01:44:43 |      MAE=0.0615  RMSE=0.0709  R²=0.9738
+01:44:43 | 💾 Sauvegarde intermédiaire (6/6 modèles)
+01:44:43 | 
+⏱️  Ablation terminée en 1725.9 min (28.8h)
+01:44:43 | 
+================================================================================
+01:44:43 | 📊 TABLEAU COMPARATIF - ABLATION TURB/pH
+01:44:43 | ================================================================================
+
+01:44:43 | Modèle                         |  Val Loss |  Turb MAE   Turb R² |    DO MAE     DO R²
+01:44:43 | -----------------------------------------------------------------------------------------------
+01:44:43 | 1_turb_only                    |    0.0012 |    0.0370    0.9986 |    5.3738 -150.3199
+01:44:43 | 2_DO_02                        |    0.0020 |    0.0409    0.9982 |    0.0546    0.9778
+01:44:43 | 3_DO_04                        |    0.0032 |    0.0459    0.9978 |    0.0509    0.9794
+01:44:43 | 4_DO_05                        |    0.0042 |    0.0591    0.9966 |    0.0429    0.9844
+01:44:43 | 5_DO_07                        |    0.0026 |    0.0392    0.9984 |    0.0407    0.9877
+01:44:43 | 6_DO_09                        |    0.0041 |    0.0546    0.9972 |    0.0615    0.9738
+01:44:43 | -----------------------------------------------------------------------------------------------
+01:44:47 | 📊 Graphique comparatif  : ablation_results\20260331_205847\ablation_turb_ph_comparison.png
+01:44:47 | 📊 Courbes individuelles : ablation_results\20260331_205847\ablation_turb_ph_individual_curves.png
+01:44:47 | 
+================================================================================
+01:44:47 | 📊 EFFET DE LAMBDA_DO SUR MAE TURBIDITE (TEST)
+01:44:47 | ================================================================================
+01:44:47 |   Config                lambda_DO   MAE turb TEST   vs turb_only
+01:44:47 |   --------------------------------------------------------------
+01:44:47 |   1_turb_only                 0.0          0.0370    +0.0000 ≈ egal
+01:44:47 |   2_DO_02                     0.2          0.0409    +0.0039 ≈ egal
+01:44:47 |   3_DO_04                     0.4          0.0459    +0.0089 ❌ pire
+01:44:47 |   4_DO_05                     0.5          0.0591    +0.0221 ❌ pire
+01:44:47 |   5_DO_07                     0.7          0.0392    +0.0022 ≈ egal
+01:44:47 |   6_DO_09                     0.9          0.0546    +0.0176 ❌ pire
+01:44:47 | 
+================================================================================
+01:44:47 | 🏆 RAPPORT FINAL
+01:44:47 | ================================================================================
+01:44:47 | 
+  Meilleur modèle : 1_turb_only
+01:44:47 |   Best epoch      : 10
+01:44:47 |   Best val_loss   : 0.0012
+01:44:47 |   MAE  turb TEST  : 0.0370 NTU
+01:44:47 |   RMSE turb TEST  : 0.0479 NTU
+01:44:47 |   R²   turb TEST  : 0.9986
+01:44:47 | 
+📝 CONFIGURATION RECOMMANDÉE POUR TRAIN.PY :
+01:44:47 |   loss_config = {
+01:44:47 |       'lambdas': {
+01:44:47 |           'turbidity_NTU': 1.0,
+01:44:47 |           'pH': 0.0,
+01:44:47 |           'temperature_C': 0.0,
+01:44:47 |           'DO_mgL': 0.0,
+01:44:47 |       },
+01:44:47 |       'delta': 1.0
+01:44:47 |   }
+01:44:47 | 
+⏱️  Temps total : 1726 min (28.8h)
+01:44:47 | 📁 Fichiers dans : ablation_results\20260331_205847/
+01:44:47 |    - ablation_log.txt              ← log complet
+01:44:47 |    - ablation_results.json         ← historique train/val/test losses
+01:44:47 |    - ablation_partial.json         ← checkpoint (reprise si crash)
+01:44:47 |    - ablation_turb_pH_comparison.png        ← vue d'ensemble
+01:44:47 |    - ablation_turb_pH_individual_curves.png ← courbes par config
+01:44:47 | 
+✅ ABLATION TERMINÉE

@@ -11,7 +11,7 @@ Configuration finale issue de l'ablation complète (run_complete_study.py) :
 
 HYPERPARAMÈTRES :
   - Batch Size   : 32
-  - Epochs       : 30  (convergence complète avec CosineAnnealingLR)
+  - Epochs       : 20  (convergence complète avec CosineAnnealingLR)
   - Learning Rate: 1e-4 (conservative pour backbone pretrained)
   - Weight Decay : 1e-4 (L2 regularization légère)
   - Optimizer    : AdamW
@@ -122,7 +122,7 @@ def main() -> None:
     # ── Configuration ──────────────────────────────────────────────────────────
     config = {
         "batch_size"   : 32,
-        "num_epochs"   : 30,
+        "num_epochs"   : 20,
         "learning_rate": 1e-4,
         "weight_decay" : 1e-4,
         # CORRECTION : num_workers=0 obligatoire sur Windows (multiprocessing incompatible)
