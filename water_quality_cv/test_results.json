@@ -1,0 +1,59 @@
+{
+  "checkpoint": "C:\\Users\\user\\Desktop\\p2m\\Mod-les-d-estimation-de-la-qualit-de-l-eau-partir-d-informations-visuelles-ou-non-visuelles\\water_quality_cv\\checkpoints\\best_model.pth",
+  "device": "cuda",
+  "n_test_images": 709,
+  "metrics": {
+    "turbidity_NTU": {
+      "mae": 0.0396738238632679,
+      "rmse": 0.04714980348944664,
+      "r2": 0.9986031129607473,
+      "mape": 0.5894137620925903,
+      "n_samples": 709,
+      "ss_res": 1.5761806964874268,
+      "ss_tot": 1128.352294921875,
+      "target_std": 1.2615348100662231,
+      "target_mean": 7.199789047241211,
+      "note": ""
+    },
+    "pH": {
+      "mae": 7.846282958984375,
+      "rmse": 7.853195667266846,
+      "r2": -10.0,
+      "mape": 101.06948852539062,
+      "n_samples": 709,
+      "ss_res": 43725.9296875,
+      "ss_tot": 74.99458312988281,
+      "target_std": 0.3252309262752533,
+      "target_mean": 7.763229846954346,
+      "note": "R² négatif (-10.000) : le modèle est moins précis que prédire la moyenne. MAE=7.8463 reste la métrique principale."
+    },
+    "temperature_C": {
+      "mae": 29.112709045410156,
+      "rmse": 29.12282371520996,
+      "r2": -10.0,
+      "mape": 99.91215515136719,
+      "n_samples": 709,
+      "ss_res": 601330.5,
+      "ss_tot": 420.7170104980469,
+      "target_std": 0.7703213095664978,
+      "target_mean": 29.13836669921875,
+      "note": "R² négatif (-10.000) : le modèle est moins précis que prédire la moyenne. MAE=29.1127 reste la métrique principale."
+    },
+    "DO_mgL": {
+      "mae": 0.03357155993580818,
+      "rmse": 0.04154333844780922,
+      "r2": 0.9910085968405926,
+      "mape": 0.6410589218139648,
+      "n_samples": 709,
+      "ss_res": 1.2236268520355225,
+      "ss_tot": 136.08853149414062,
+      "target_std": 0.4381145238876343,
+      "target_mean": 5.269562244415283,
+      "note": ""
+    }
+  },
+  "interpretation": {
+    "turbidity_mae": "🏆 Exceptionnel  (< 0.20 NTU)",
+    "r2_note": "R² peut être NaN/négatif si le TEST set contient un seul clip vidéo avec faible variabilité (SS_tot ≈ 0). MAE et RMSE restent des métriques fiables dans ce cas."
+  }
+}
