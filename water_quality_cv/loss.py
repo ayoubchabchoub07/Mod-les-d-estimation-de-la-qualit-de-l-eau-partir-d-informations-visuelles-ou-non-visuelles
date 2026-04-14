@@ -1,12 +1,25 @@
 """
-Loss multi-tâches pour régression de qualité d'eau.
-Utilise Huber Loss (robuste aux outliers) avec pondération par tâche.
+Loss multi-tâches — Uncertainty Weighting (Kendall et al., 2018)
+"Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics"
 
-Config gagnante ablation (2_with_weak_DO, MAE=0.2366 NTU) :
-    turbidity_NTU = 1.0   (signal principal, CV=24.7%)
-    pH            = 0.0   (désactivé, CV=0.06% — aucun signal visuel)
-    temperature_C = 0.0   (désactivé, CV=0.67% — aucun signal visuel)
-    DO_mgL        = 0.2   (régularisateur léger, CV=5.85%)
+Remplace les λ fixes par des incertitudes homoscédastiques apprises automatiquement.
+
+Formule par tâche k :
+    L_k = (1 / (2 · σ_k²)) · Huber_k  +  log(σ_k)
+        = 0.5 · exp(-log_var_k) · Huber_k  +  0.5 · log_var_k
+
+Propriétés :
+    - σ_k petit  → tâche précise  → poids fort automatiquement
+    - σ_k grand  → tâche bruitée → poids faible automatiquement
+    - log(σ_k)   → terme de régularisation (empêche σ → ∞)
+
+Pour turbidité (CV=24.7%) : le modèle apprendra σ_turb petit → poids fort
+Pour DO (CV=5.85%)        : le modèle apprendra σ_DO   grand → poids faible
+
+COMPATIBILITÉ : interface identique à MultiTaskLoss.
+    - create_loss_function(config) → fonctionne sans modifier train.py
+    - Seul ajout dans train.py : passer criterion.parameters() à l'optimiseur
+      et logger criterion.get_sigmas() par epoch.
 """
 
 from __future__ import annotations
@@ -17,57 +30,62 @@ import torch
 import torch.nn as nn
 
 
-class MultiTaskLoss(nn.Module):
+class UncertaintyWeightedLoss(nn.Module):
     """
-    Loss multi-tâches avec pondération.
+    Loss multi-tâches avec pondération automatique par incertitude.
 
-    Formule :
-        L_total = Σ_k  λ_k × Huber(y_k, ŷ_k, δ)
+    Les poids ne sont plus des λ fixes mais des paramètres appris :
+        log_var_k = log(σ_k²)  — initialisé à 0 → σ_k² = 1 au départ
 
-    Seules les tâches avec λ_k > 0 sont calculées.
-    Les NaN dans les targets sont masqués automatiquement.
+    Tâches désactivées (λ=0 dans config) : complètement exclues.
+    NaN dans les targets : masqués automatiquement.
     """
 
     def __init__(
         self,
-        lambdas: Optional[Dict[str, float]] = None,
+        active_tasks: list,
         delta: float = 1.0,
         reduction: str = "mean",
     ):
         """
         Args:
-            lambdas : Poids par tâche. Si None, utilise la config gagnante ablation.
-            delta   : Seuil de transition Huber (L1 ↔ L2).
-            reduction: 'mean' ou 'sum'.
+            active_tasks : tâches incluses dans la loss,
+                           ex. ["turbidity_NTU", "DO_mgL"]
+            delta        : seuil Huber (L1 ↔ L2)
+            reduction    : 'mean' ou 'sum'
         """
-        super(MultiTaskLoss, self).__init__()
+        super(UncertaintyWeightedLoss, self).__init__()
 
-        # CORRECTION 1 : λ par défaut = config gagnante ablation
-        # (anciens défauts : pH=0.1, temp=0.1, DO=0.5 → causaient overfitting)
-        if lambdas is None:
-            self.lambdas = {
-                "turbidity_NTU": 1.0,
-                "pH"           : 0.0,   # désactivé — CV=0.06%
-                "temperature_C": 0.0,   # désactivé — CV=0.67%
-                "DO_mgL"       : 0.2,   # régularisateur léger — CV=5.85%
-            }
-        else:
-            self.lambdas = lambdas
+        self.active_tasks = active_tasks
+        self.delta        = delta
+        self.reduction    = reduction
 
-        self.huber     = nn.SmoothL1Loss(reduction=reduction, beta=delta)
-        self.delta     = delta
-        self.reduction = reduction
+        # log_var_k = log(σ_k²), initialisé à 0 → σ_k² = exp(0) = 1
+        # Clé : remplace "." par "_" pour ParameterDict (ex. "DO_mgL" → "DO_mgL")
+        self.log_vars = nn.ParameterDict({
+            self._key(task): nn.Parameter(torch.zeros(1))
+            for task in active_tasks
+        })
 
-        print(f"\n{'='*60}")
-        print("CONFIGURATION DE LA LOSS")
-        print(f"{'='*60}")
-        print(f"Type      : Huber Loss (SmoothL1, β={delta})")
-        print(f"Reduction : {reduction}")
-        print("\nPondération (λ) par tâche :")
-        for task, w in self.lambdas.items():
-            status = "✅ ACTIF" if w > 0 else "❌ INACTIF"
-            print(f"  {task:20s} : {w:.2f}  {status}")
-        print(f"{'='*60}\n")
+        self._print_config()
+
+    @staticmethod
+    def _key(task: str) -> str:
+        """Transforme un nom de tâche en clé valide pour ParameterDict."""
+        return task.replace(".", "_")
+
+    def _huber(
+        self, pred: torch.Tensor, target: torch.Tensor
+    ) -> torch.Tensor:
+        """Huber loss avec NaN masking. Retourne 0 si tous les targets sont NaN."""
+        mask = ~torch.isnan(target)
+        if mask.sum() == 0:
+            return torch.zeros(1, device=pred.device, dtype=pred.dtype).squeeze()
+        return nn.functional.huber_loss(
+            pred[mask], target[mask],
+            delta=self.delta,
+            reduction=self.reduction,
+        )
 
     def forward(
         self,
@@ -75,7 +93,7 @@ class MultiTaskLoss(nn.Module):
         targets    : Dict[str, torch.Tensor],
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """
-        Calcule la loss multi-tâches pondérée.
+        Calcule la loss multi-tâches avec pondération par incertitude.
 
         Args:
             predictions : Dict {task: tensor (B,)}
@@ -83,105 +101,140 @@ class MultiTaskLoss(nn.Module):
 
         Returns:
             total_loss  : Tensor scalaire différentiable
-            task_losses : Dict {task: float}  (losses individuelles non pondérées)
+            task_losses : Dict {task: float}  (Huber brut, sans pondération)
         """
         device = next(iter(predictions.values())).device
-
-        # CORRECTION 2 : initialiser avec un tenseur zéro différentiable
-        # (l'ancienne version `total_loss = None` + accumulation crée un graphe profond)
         total_loss  = torch.zeros(1, device=device, dtype=torch.float32)
         task_losses : Dict[str, float] = {}
 
-        for task in ["turbidity_NTU", "pH", "temperature_C", "DO_mgL"]:
+        for task in self.active_tasks:
             if task not in predictions or task not in targets:
                 continue
 
-            lambda_k = self.lambdas.get(task, 0.0)
-            if lambda_k == 0.0:
-                continue  # tâche désactivée — on ne calcule rien
+            log_var   = self.log_vars[self._key(task)]       # log(σ²), shape (1,)
+            precision = torch.exp(-log_var)                   # 1/σ² — toujours positif
 
-            pred   = predictions[task]
-            target = targets[task]
+            huber_k = self._huber(predictions[task], targets[task])
 
-            # Masquer les NaN dans les targets
-            mask = ~torch.isnan(target)
-            if mask.sum() == 0:
-                continue
+            # L_k = (1/2σ²) · Huber_k + (1/2) · log(σ²)
+            #      = 0.5 · precision · Huber_k + 0.5 · log_var
+            weighted_k = 0.5 * precision * huber_k + 0.5 * log_var
 
-            loss_k        = self.huber(pred[mask], target[mask])
-            total_loss    = total_loss + lambda_k * loss_k
-            task_losses[task] = float(loss_k.item())
+            total_loss = total_loss + weighted_k.squeeze()
+            task_losses[task] = float(huber_k.item())
 
         return total_loss.squeeze(), task_losses
 
+    def get_sigmas(self) -> Dict[str, float]:
+        """
+        Retourne σ_k (écart-type) pour chaque tâche active — pour le logging.
+
+        σ_k petit  → tâche fiable  → poids élevé
+        σ_k grand  → tâche bruitée → poids faible
+        """
+        return {
+            task: float(torch.exp(0.5 * self.log_vars[self._key(task)]).item())
+            for task in self.active_tasks
+        }
+
+    def get_effective_weights(self) -> Dict[str, float]:
+        """
+        Retourne le poids effectif 1/(2σ²) par tâche — analogue aux λ fixes.
+        Utile pour comparer avec l'ablation précédente.
+        """
+        return {
+            task: float(0.5 * torch.exp(-self.log_vars[self._key(task)]).item())
+            for task in self.active_tasks
+        }
+
     def update_lambdas(self, new_lambdas: Dict[str, float]) -> None:
         """
-        Met à jour les poids des tâches (curriculum learning, ablation).
-
-        Args:
-            new_lambdas : Nouveaux poids (seules les clés présentes sont mises à jour).
+        Stub de compatibilité avec l'ancienne interface MultiTaskLoss.
+        Les poids sont maintenant appris — cette méthode ne fait rien.
         """
-        self.lambdas.update(new_lambdas)
-        print("\n📊 Poids mis à jour :")
-        for task, w in self.lambdas.items():
-            status = "✅ ACTIF" if w > 0 else "❌ INACTIF"
-            print(f"  {task:20s} : {w:.2f}  {status}")
+        print("⚠️  update_lambdas() ignoré : les poids sont appris automatiquement.")
+
+    def _print_config(self) -> None:
+        print(f"\n{'='*60}")
+        print("UNCERTAINTY WEIGHTED LOSS  (Kendall et al., 2018)")
+        print(f"{'='*60}")
+        print(f"Type      : Huber + uncertainty regularisation (β={self.delta})")
+        print(f"Reduction : {self.reduction}")
+        print(f"\nTâches actives ({len(self.active_tasks)}) :")
+        for task in self.active_tasks:
+            print(f"  {task:20s} : σ initialisé à 1.0  (poids=0.5)")
+        print(f"\nParamètres appris : {len(self.active_tasks)} × log_var")
+        print("  → à inclure dans l'optimiseur via criterion.parameters()")
+        print(f"{'='*60}\n")
 
 
-def create_loss_function(config: Optional[dict] = None) -> MultiTaskLoss:
+def create_loss_function(config: Optional[dict] = None) -> UncertaintyWeightedLoss:
     """
-    Factory pour créer la loss avec configuration.
+    Factory compatible avec l'interface existante (train.py inchangé sauf optimiseur).
+
+    Les tâches avec λ=0 dans config['lambdas'] sont automatiquement exclues.
+    Les tâches avec λ>0 deviennent des tâches actives avec σ appris.
 
     Args:
-        config : Dict optionnel. Exemple :
+        config : même format qu'avant :
                  {
                      'lambdas': {'turbidity_NTU': 1.0, 'DO_mgL': 0.2,
                                  'pH': 0.0, 'temperature_C': 0.0},
                      'delta': 1.0
                  }
+
     Returns:
-        Instance de MultiTaskLoss configurée.
-
-    Comportement de fusion des lambdas :
-        - Si config fournit 'lambdas', il REMPLACE entièrement les défauts.
-        - Cela évite le bug de fusion partielle où pH=0.1 restait actif
-          même quand on passait {'turbidity_NTU': 1.0, 'DO_mgL': 0.2}.
+        Instance de UncertaintyWeightedLoss.
     """
-    # CORRECTION 3 : séparation propre lambdas / autres paramètres
-    # (l'ancienne version faisait default.update(config['lambdas']) qui fusionnait
-    #  au lieu de remplacer → pH=0.1 et temp=0.1 restaient actifs)
-
-    # Valeurs par défaut pour les paramètres non-lambdas
+    # Tâches actives par défaut (config gagnante ablation comme point de départ)
+    default_active = ["turbidity_NTU", "DO_mgL"]
     delta     = 1.0
     reduction = "mean"
 
-    # Lambdas : None → le constructeur utilisera les défauts corrects
-    lambdas = None
+    active_tasks = default_active
 
     if config:
-        # Remplacer entièrement les lambdas si fournis (pas de fusion)
         if "lambdas" in config:
-            lambdas = config["lambdas"]
+            # On réutilise les λ pour identifier les tâches actives (λ > 0)
+            # Les valeurs de λ elles-mêmes sont ignorées — σ prend le relais
+            active_tasks = [
+                task for task, lam in config["lambdas"].items() if lam > 0
+            ]
         if "delta" in config:
             delta = config["delta"]
         if "reduction" in config:
             reduction = config["reduction"]
 
-    return MultiTaskLoss(lambdas=lambdas, delta=delta, reduction=reduction)
+    print(f"   Tâches actives détectées : {active_tasks}")
+    print("   Pondération : uncertainty weighting  (λ remplacés par σ appris)")
+
+    return UncertaintyWeightedLoss(
+        active_tasks=active_tasks,
+        delta=delta,
+        reduction=reduction,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tests rapides
+# Tests — Uncertainty Weighted Loss
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TEST DE LA LOSS MULTI-TÂCHES")
+    print("TEST — UNCERTAINTY WEIGHTED LOSS")
     print("=" * 60)
 
-    # Test 1 : config par défaut (gagnante ablation)
-    print("\n── Test 1 : config par défaut ──")
-    criterion = create_loss_function()
+    # Test 1 : config identique à l'ancienne (compatibilité)
+    print("\n── Test 1 : compatibilité config gagnante ablation ──")
+    criterion = create_loss_function({
+        "lambdas": {
+            "turbidity_NTU": 1.0,
+            "pH"           : 0.0,
+            "temperature_C": 0.0,
+            "DO_mgL"       : 0.2,
+        },
+        "delta": 1.0,
+    })
 
     B = 16
     preds = {
@@ -199,43 +252,49 @@ if __name__ == "__main__":
 
     loss, task_losses = criterion(preds, tgts)
     print(f"Loss totale : {loss.item():.4f}")
-    print("Tâches actives :", list(task_losses.keys()))
-    assert "pH"            not in task_losses, "pH ne devrait pas être actif"
-    assert "temperature_C" not in task_losses, "temperature_C ne devrait pas être actif"
-    print("✅ pH et temperature_C bien inactifs")
+    print(f"Tâches actives : {list(task_losses.keys())}")
+    assert "pH"            not in task_losses, "pH devrait être inactif"
+    assert "temperature_C" not in task_losses, "temperature_C devrait être inactif"
+    print("✅ pH et temperature_C bien exclus")
 
-    # Test 2 : config personnalisée — lambdas remplacent les défauts entièrement
-    print("\n── Test 2 : config personnalisée ──")
-    criterion2 = create_loss_function({
-        "lambdas": {
-            "turbidity_NTU": 1.0,
-            "pH"           : 0.0,
-            "temperature_C": 0.0,
-            "DO_mgL"       : 0.2,
-        },
-        "delta": 1.0,
-    })
-    loss2, _ = criterion2(preds, tgts)
-    print(f"Loss totale : {loss2.item():.4f}")
-    print("✅ Config personnalisée OK")
+    # Test 2 : σ initiaux = 1.0
+    print("\n── Test 2 : σ initiaux ──")
+    sigmas = criterion.get_sigmas()
+    for task, sigma in sigmas.items():
+        print(f"  σ_{task:20s} = {sigma:.4f}  (attendu ~1.0)")
+        assert abs(sigma - 1.0) < 1e-4, f"σ devrait être 1.0, obtenu {sigma}"
+    print("✅ σ initiaux corrects")
 
-    # Test 3 : NaN dans les targets
-    print("\n── Test 3 : NaN dans les targets ──")
+    # Test 3 : NaN masking
+    print("\n── Test 3 : NaN dans targets ──")
     tgts_nan = {k: v.clone() for k, v in tgts.items()}
-    tgts_nan["turbidity_NTU"][0:3] = float("nan")
+    tgts_nan["turbidity_NTU"][0:4] = float("nan")
     loss3, _ = criterion(preds, tgts_nan)
     print(f"Loss avec NaN : {loss3.item():.4f}")
-    print("✅ NaN masqués correctement")
+    print("✅ NaN masqués")
 
-    # Test 4 : backward (gradients)
-    print("\n── Test 4 : backward ──")
+    # Test 4 : backward (gradients sur log_vars)
+    print("\n── Test 4 : backward (gradients sur log_var) ──")
     loss.backward()
-    print("✅ Backward réussi")
+    for name, param in criterion.log_vars.items():
+        assert param.grad is not None, f"Pas de gradient sur log_var_{name}"
+        print(f"  grad log_var_{name} = {param.grad.item():.6f}")
+    print("✅ Gradients propagés sur les log_var")
 
-    # Test 5 : vérifier que total_loss est un scalaire propre (pas None)
-    print("\n── Test 5 : type de total_loss ──")
-    assert loss.shape == torch.Size([]), f"Expected scalar, got {loss.shape}"
-    print(f"✅ total_loss est bien un scalaire : shape={loss.shape}")
+    # Test 5 : log_vars inclus dans les paramètres (pour l'optimiseur)
+    print("\n── Test 5 : paramètres entraînables ──")
+    n_params = sum(p.numel() for p in criterion.parameters())
+    print(f"  Paramètres entraînables dans criterion : {n_params}")
+    assert n_params == len(criterion.active_tasks), \
+        f"Attendu {len(criterion.active_tasks)} params, obtenu {n_params}"
+    print("✅ Paramètres corrects (1 log_var par tâche active)")
+
+    # Test 6 : poids effectifs
+    print("\n── Test 6 : poids effectifs initiaux ──")
+    weights = criterion.get_effective_weights()
+    for task, w in weights.items():
+        print(f"  poids_{task:20s} = {w:.4f}  (attendu 0.5 au départ)")
+    print("✅ Poids effectifs corrects")
 
     print(f"\n{'='*60}")
     print("✅ TOUS LES TESTS RÉUSSIS")

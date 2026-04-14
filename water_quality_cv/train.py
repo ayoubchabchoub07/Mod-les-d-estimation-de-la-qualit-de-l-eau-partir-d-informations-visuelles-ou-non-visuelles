@@ -206,8 +206,9 @@ def main() -> None:
 
     # ── Optimiseur ─────────────────────────────────────────────────────────────
     print("\n5️⃣  Création de l'optimiseur...")
+    # ⚠️  CORRECTION : inclure criterion.parameters() (log_vars pour uncertainty weighting)
     optimizer = AdamW(
-        model.parameters(),
+        list(model.parameters()) + list(criterion.parameters()),
         lr           = config["learning_rate"],
         weight_decay = config["weight_decay"],
     )
@@ -271,6 +272,17 @@ def main() -> None:
             v_loss = val_task_losses.get(task, 0.0)
             print(f"     {task:20s} : Train={t_loss:.4f}  Val={v_loss:.4f}")
 
+        # 🆕 Incertitudes σ par tâche (uncertainty weighting)
+        if hasattr(criterion, 'get_sigmas'):
+            print("   Incertitudes σ par tâche (appris) :")
+            sigmas = criterion.get_sigmas()
+            weights = criterion.get_effective_weights()
+            for task in active_tasks:
+                if task in sigmas:
+                    sigma = sigmas[task]
+                    w = weights[task]
+                    print(f"     {task:20s} : σ={sigma:.4f}  →  poids effectif={w:.3f}")
+
         # Sauvegarde meilleur modèle
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -281,6 +293,7 @@ def main() -> None:
                     "epoch"            : epoch,
                     "model_state_dict" : model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "criterion_state_dict": criterion.state_dict(),  # 🆕 log_vars
                     "val_loss"         : val_loss,
                     "config"           : config,
                     "loss_config"      : loss_config,
@@ -298,6 +311,7 @@ def main() -> None:
                 "epoch"            : epoch,
                 "model_state_dict" : model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "criterion_state_dict": criterion.state_dict(),  # 🆕 log_vars
                 "val_loss"         : val_loss,
                 "config"           : config,
                 "loss_config"      : loss_config,
