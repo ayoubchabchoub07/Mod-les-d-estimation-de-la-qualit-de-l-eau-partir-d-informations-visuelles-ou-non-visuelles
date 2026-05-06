@@ -2,13 +2,6 @@
 """
 PHASE 3 : ENTRAÎNEMENT FINAL DU MODÈLE
 
-Configuration finale issue de l'ablation complète (run_complete_study.py) :
-  - Meilleure config Phase 2 : 2_with_weak_DO  (MAE=0.2366 NTU en 10 epochs)
-  - turbidity_NTU = 1.0  (signal principal, CV=24.7%)
-  - DO_mgL        = 0.2  (régularisateur léger, CV=5.85%)
-  - pH            = 0.0  (désactivé, CV=0.06% — aucun signal visuel)
-  - temperature_C = 0.0  (désactivé, CV=0.67% — aucun signal visuel)
-
 HYPERPARAMÈTRES :
   - Batch Size   : 32
   - Epochs       : 20  (convergence complète avec CosineAnnealingLR)

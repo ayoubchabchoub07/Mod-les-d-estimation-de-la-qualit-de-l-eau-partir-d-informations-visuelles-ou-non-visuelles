@@ -6,17 +6,13 @@ Projet : Estimation de qualité d'eau — Tilapia RAS
 Référence : Gal & Ghahramani, ICML 2016
             "Dropout as a Bayesian Approximation"
 
-Version optimale : fusion des deux versions (A + B)
-  ✅ enable_mcd() propre        (version B)
-  ✅ Sanity check fail-fast     (version B)
-  ✅ Inférence image par image  (version B)
-  ✅ JSON-safe serialisation    (version B)
-  ✅ Argparse CLI               (version B)
-  ✅ 4 graphiques               (version A)
-  ✅ RMSE + R² globaux          (version A)
-  ✅ Bug indentation corrigé    (version B avait un crash)
-  ✅ Scatter STD vs MAE         (version A)
-  ✅ Prédictions ± barres       (version A)
+Figures générées :
+  fig1_std_histograms.png   — Distributions STD corrects vs incorrects
+  fig2_std_vs_mae.png       — Corrélation MAE vs STD
+  fig3_predictions.png      — Prédictions ± barres d'incertitude
+  fig4_threshold.png        — Trade-off couverture / précision (Turbidité + DO)  [NOUVEAU]
+  fig5_std_per_image.png    — STD par image de test triée                        [NOUVEAU]
+  fig6_entropy.png          — Entropie différentielle par image                  [NOUVEAU]
 
 Usage :
     python mcd_evaluate.py
@@ -41,6 +37,7 @@ from tqdm import tqdm
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 # ── Imports projet ───────────────────────────────────────────────────────────
 from model import create_model
@@ -52,14 +49,14 @@ CHECKPOINT_PATH = Path("checkpoints/best_model.pth")
 OUTPUT_DIR      = Path("mcd_results")
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Tâches actives (λ > 0 dans train.py)
+# Tâches actives
 ACTIVE_TASKS = ["turbidity_NTU", "DO_mgL"]
 TASK_UNITS   = {"turbidity_NTU": "NTU", "DO_mgL": "mg/L"}
 
 # Tolérance pour définir "correct" : |pred - label| < tolérance
 TOLERANCES = {
-    "turbidity_NTU": 0.1,    # NTU
-    "DO_mgL":        0.05,   # mg/L
+    "turbidity_NTU": 0.1,   # NTU
+    "DO_mgL":        0.05,  # mg/L
 }
 
 # Couleurs graphiques
@@ -77,14 +74,12 @@ COLORS = {
 # ════════════════════════════════════════════════════════════════════════════
 
 def _is_valid(value: float | None) -> bool:
-    """True si la valeur est un float fini."""
     if value is None:
         return False
     return not (math.isnan(value) or math.isinf(value))
 
 
 def _mean_std(values: List[float]) -> Tuple[float, float]:
-    """Moyenne et écart-type d'une liste."""
     if not values:
         return float("nan"), float("nan")
     arr = np.array(values, dtype=float)
@@ -92,14 +87,12 @@ def _mean_std(values: List[float]) -> Tuple[float, float]:
 
 
 def _fmt(mean: float, std: float) -> str:
-    """Format affichage mean +/- std."""
     if not _is_valid(mean) or not _is_valid(std):
         return "nan"
     return f"{mean:.4f} +/- {std:.4f}"
 
 
 def json_safe(obj: object) -> object:
-    """Rend un objet sérialisable JSON (gère NaN, Inf, tensors, Path)."""
     if isinstance(obj, dict):
         return {k: json_safe(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -115,23 +108,14 @@ def json_safe(obj: object) -> object:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 1. ACTIVATION DU DROPOUT À L'INFÉRENCE  (meilleure approche — version B)
+# 1. ACTIVATION DU DROPOUT À L'INFÉRENCE
 # ════════════════════════════════════════════════════════════════════════════
 
 def enable_mcd(model: nn.Module) -> nn.Module:
     """
     Active le dropout uniquement, en laissant le reste en mode eval().
-
-    Stratégie correcte :
-      - model.eval()  → fige BatchNorm (utilise stats globales, pas du mini-batch)
-      - m.train()     → réactive UNIQUEMENT les nn.Dropout
-
-    Pourquoi NE PAS faire model.train() global :
-      - model.train() réactive aussi les BatchNorm → stats instables à l'inférence
-      - Seul le Dropout doit être stochastique
-
-    Raises:
-        RuntimeError si aucun nn.Dropout n'est trouvé (MCD impossible)
+    - model.eval()  → fige BatchNorm
+    - m.train()     → réactive UNIQUEMENT les nn.Dropout
     """
     model.eval()
 
@@ -154,21 +138,18 @@ def enable_mcd(model: nn.Module) -> nn.Module:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 2. SANITY CHECK — FAIL FAST  (version B, absent dans version A)
+# 2. SANITY CHECK — FAIL FAST
 # ════════════════════════════════════════════════════════════════════════════
 
 def sanity_check_mcd(model: nn.Module, test_loader, T: int = 20) -> None:
     """
     Vérifie que MCD fonctionne avant la boucle complète.
-    Prend 1 image, fait T passes, vérifie que STD > 0.
-
-    Raises:
-        ValueError si STD == 0 (dropout non actif → toutes passes identiques)
+    Raises ValueError si STD == 0 (dropout non actif).
     """
     print("\n🔍 SANITY CHECK MCD...")
 
     images, _ = next(iter(test_loader))
-    image = images[0].unsqueeze(0).to(DEVICE)   # [1, 3, H, W]
+    image = images[0].unsqueeze(0).to(DEVICE)
 
     preds = []
     with torch.no_grad():
@@ -193,20 +174,13 @@ def sanity_check_mcd(model: nn.Module, test_loader, T: int = 20) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 3. INFÉRENCE MCD SUR UNE IMAGE  (version B — image par image)
+# 3. INFÉRENCE MCD SUR UNE IMAGE
 # ════════════════════════════════════════════════════════════════════════════
 
 def mcd_predict(model: nn.Module, image: torch.Tensor, T: int) -> Dict[str, float]:
     """
     T passes stochastiques sur une seule image.
-
-    Pourquoi image par image (et non par batch) :
-      - Chaque appel model(image) génère un masque dropout indépendant
-      - En batch, toutes les images d'un batch partagent le même masque
-        → sous-estimation de la variance inter-images
-
-    Returns:
-        Dict avec {task}_mean, {task}_std, {task}_var pour chaque tâche active
+    Inférence image par image pour garantir des masques dropout indépendants.
     """
     preds: Dict[str, List[float]] = {task: [] for task in ACTIVE_TASKS}
 
@@ -232,15 +206,8 @@ def mcd_predict(model: nn.Module, image: torch.Tensor, T: int) -> Dict[str, floa
 
 def evaluate_mcd(model: nn.Module, test_loader, T: int) -> List[Dict]:
     """
-    Applique MCD sur les K images du TEST set.
-
-    Pour chaque image k :
-      - T passes → mean_pred, std_pred, var_pred par tâche
-      - MAE vs vérité terrain
-      - correct : |mean - label| < TOLERANCES[task]
-
-    Returns:
-        Liste de K dicts, un par image
+    Applique MCD sur toutes les images du TEST set.
+    Pour chaque image : T passes → mean, std, var + MAE vs vérité terrain.
     """
     results = []
     k = 0
@@ -255,10 +222,10 @@ def evaluate_mcd(model: nn.Module, test_loader, T: int) -> List[Dict]:
             record = {"k": k}
 
             for task in ACTIVE_TASKS:
-                label = float(targets[task][i].item())
-                mean  = pred[f"{task}_mean"]
-                std   = pred[f"{task}_std"]
-                mae   = abs(mean - label) if _is_valid(label) else float("nan")
+                label   = float(targets[task][i].item())
+                mean    = pred[f"{task}_mean"]
+                std     = pred[f"{task}_std"]
+                mae     = abs(mean - label) if _is_valid(label) else float("nan")
                 correct = (mae < TOLERANCES[task]) if _is_valid(mae) else None
 
                 record[f"mean_{task}"]    = mean
@@ -275,13 +242,13 @@ def evaluate_mcd(model: nn.Module, test_loader, T: int) -> List[Dict]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 5. MÉTRIQUES GLOBALES : MAE, RMSE, R²  (version A — absent dans B)
+# 5. MÉTRIQUES GLOBALES : MAE, RMSE, R²
 # ════════════════════════════════════════════════════════════════════════════
 
 def compute_global_metrics(results: List[Dict]) -> Dict[str, Dict]:
     """
-    Calcule MAE, RMSE, R² sur l'ensemble du TEST set (prédiction = mean MCD).
-    Ces métriques sont comparables directement avec les résultats Phase 3.
+    Calcule MAE, RMSE, R² sur l'ensemble du TEST set.
+    La prédiction utilisée est la moyenne MCD.
     """
     metrics = {}
     for task in ACTIVE_TASKS:
@@ -298,11 +265,11 @@ def compute_global_metrics(results: List[Dict]) -> Dict[str, Dict]:
         y_pred = np.array([r[f"mean_{task}"]  for r in valid])
         stds   = np.array([r[f"std_{task}"]   for r in valid])
 
-        mae  = float(np.mean(np.abs(y_true - y_pred)))
-        rmse = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+        mae    = float(np.mean(np.abs(y_true - y_pred)))
+        rmse   = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
         ss_res = np.sum((y_true - y_pred) ** 2)
         ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-        r2   = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+        r2     = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
 
         metrics[task] = {
             "MAE": mae, "RMSE": rmse, "R2": r2,
@@ -316,13 +283,13 @@ def compute_global_metrics(results: List[Dict]) -> Dict[str, Dict]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 6. TABLEAU DE PERFORMANCES AVEC ÉCARTS-TYPES  (version B, enrichi)
+# 6. TABLEAU DE PERFORMANCES CORRECT / INCORRECT
 # ════════════════════════════════════════════════════════════════════════════
 
 def print_performance_table(results: List[Dict], T: int) -> Dict:
     """
     Tableau MAE +/- std et incertitude MCD pour corrects vs incorrects.
-    Hypothèse attendue : incertitude(Corrects) < incertitude(Incorrects).
+    Vérifie l'hypothèse MCD : STD(incorrects) > STD(corrects).
     """
     stats_all = {}
 
@@ -350,7 +317,7 @@ def print_performance_table(results: List[Dict], T: int) -> Dict:
                 inc_mae.append(float(mae_v))
                 inc_std.append(float(std_v))
 
-        N = len(all_mae)
+        N   = len(all_mae)
         pct = 100.0 * n_cor / N if N else float("nan")
 
         header = (
@@ -364,16 +331,16 @@ def print_performance_table(results: List[Dict], T: int) -> Dict:
         print(f"{'─'*len(header)}")
 
         for label, maes, stds in [
-            (f"Tous      (n={N})",   all_mae, all_std),
+            (f"Tous      (n={N})",    all_mae, all_std),
             (f"Corrects  (n={n_cor})", cor_mae, cor_std),
             (f"Incorrects(n={n_inc})", inc_mae, inc_std),
         ]:
             m_mae, s_mae = _mean_std(maes)
             m_std, s_std = _mean_std(stds)
             pct_row = 100.0 * len(maes) / N if N else float("nan")
-            if maes == inc_mae:
+            if maes is inc_mae:
                 pct_row = 0.0
-            elif maes == cor_mae:
+            elif maes is cor_mae:
                 pct_row = 100.0
             print(
                 f" {label:<22} | {_fmt(m_mae, s_mae):<22} | "
@@ -382,7 +349,6 @@ def print_performance_table(results: List[Dict], T: int) -> Dict:
 
         print(f"{'─'*len(header)}")
 
-        # Vérification hypothèse MCD
         m_cor_std = np.mean(cor_std) if cor_std else float("nan")
         m_inc_std = np.mean(inc_std) if inc_std else float("nan")
         if _is_valid(m_cor_std) and _is_valid(m_inc_std):
@@ -400,11 +366,12 @@ def print_performance_table(results: List[Dict], T: int) -> Dict:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 7. GRAPHIQUES  (4 figures — version A + figures clés de B)
+# 7. GRAPHIQUES (6 figures)
 # ════════════════════════════════════════════════════════════════════════════
 
-def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
-    """Génère les 4 figures MCD."""
+def plot_all(results: List[Dict], T: int, output_dir: Path,
+             global_metrics: Dict) -> None:
+    """Génère les 6 figures MCD."""
 
     output_dir.mkdir(exist_ok=True)
 
@@ -417,11 +384,11 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
     )
 
     for col, task in enumerate(ACTIVE_TASKS):
-        ax = axes[col]
+        ax   = axes[col]
         unit = TASK_UNITS[task]
 
         cor = [r[f"std_{task}"] for r in results
-               if r.get(f"correct_{task}") is True and _is_valid(r.get(f"std_{task}"))]
+               if r.get(f"correct_{task}") is True  and _is_valid(r.get(f"std_{task}"))]
         inc = [r[f"std_{task}"] for r in results
                if r.get(f"correct_{task}") is False and _is_valid(r.get(f"std_{task}"))]
 
@@ -452,7 +419,7 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
     plt.close()
     print(f"   ✅ {p.name}")
 
-    # ── Figure 2 : Scatter STD vs MAE  (version A) ──────────────────────────
+    # ── Figure 2 : Scatter STD vs MAE ───────────────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
     fig.suptitle(
         f"MCD — Corrélation incertitude / erreur (T={T})",
@@ -460,7 +427,7 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
     )
 
     for col, task in enumerate(ACTIVE_TASKS):
-        ax = axes[col]
+        ax   = axes[col]
         unit = TASK_UNITS[task]
 
         valid = [r for r in results
@@ -475,7 +442,6 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
                         alpha=0.45, s=12, linewidths=0)
         plt.colorbar(sc, ax=ax, label=f"STD ({unit})")
 
-        # Ligne de tendance
         if len(x) > 2:
             z = np.polyfit(x, y, 1)
             xline = np.linspace(x.min(), x.max(), 100)
@@ -495,7 +461,7 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
     plt.close()
     print(f"   ✅ {p.name}")
 
-    # ── Figure 3 : Prédictions ± barres d'incertitude  (version A) ──────────
+    # ── Figure 3 : Prédictions ± barres d'incertitude ───────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
     fig.suptitle(
         f"MCD — Prédictions avec intervalles de confiance (T={T})",
@@ -503,14 +469,14 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
     )
 
     for col, task in enumerate(ACTIVE_TASKS):
-        ax = axes[col]
-        unit = TASK_UNITS[task]
+        ax    = axes[col]
+        unit  = TASK_UNITS[task]
         color = COLORS["correct"] if task == "turbidity_NTU" else COLORS["do"]
 
         sample = [r for r in results if _is_valid(r.get(f"label_{task}"))]
         sample = sorted(sample, key=lambda r: r[f"label_{task}"])
         if len(sample) > 250:
-            idx = np.linspace(0, len(sample) - 1, 250, dtype=int)
+            idx    = np.linspace(0, len(sample) - 1, 250, dtype=int)
             sample = [sample[i] for i in idx]
 
         x = [r[f"label_{task}"] for r in sample]
@@ -535,85 +501,152 @@ def plot_all(results: List[Dict], T: int, output_dir: Path) -> None:
     plt.close()
     print(f"   ✅ {p.name}")
 
+    # ── Figure 5 : STD par image de test ────────────────────────────────────
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+    fig.suptitle(
+        f"MCD — Incertitude (STD) par image du TEST set (T={T})",
+        fontsize=12, fontweight="bold", color=COLORS["title"]
+    )
+
+    for col, task in enumerate(ACTIVE_TASKS):
+        ax   = axes[col]
+        unit = TASK_UNITS[task]
+
+        valid = [r for r in results if _is_valid(r.get(f"std_{task}"))]
+        # Trier par STD croissant pour visualiser la distribution
+        valid_sorted = sorted(valid, key=lambda r: r[f"std_{task}"])
+
+        indices    = list(range(len(valid_sorted)))
+        stds       = [r[f"std_{task}"] for r in valid_sorted]
+        colors_pts = [
+            COLORS["correct"] if r.get(f"correct_{task}") else COLORS["wrong"]
+            for r in valid_sorted
+        ]
+
+        ax.scatter(indices, stds, c=colors_pts, alpha=0.6, s=10, linewidths=0)
+        ax.axhline(np.mean(stds), color="#333333", ls="--", lw=1.3,
+                   label=f"STD moyen = {np.mean(stds):.5f} {unit}")
+
+        legend_elements = [
+            Patch(facecolor=COLORS["correct"], label="Correct"),
+            Patch(facecolor=COLORS["wrong"],   label="Incorrect"),
+        ]
+        ax.legend(handles=legend_elements, fontsize=8)
+
+        ax.set_xlabel("Image (triée par STD croissant)")
+        ax.set_ylabel(f"STD MCD ({unit})")
+        ax.set_title(f"{task}")
+        ax.grid(True, color=COLORS["grid"], lw=0.7)
+        ax.spines[["top", "right"]].set_visible(False)
+
+    plt.tight_layout()
+    p = output_dir / "fig5_std_per_image.png"
+    plt.savefig(p, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"   ✅ {p.name}")
+
+    # ── Figure 6 : Entropie différentielle ──────────────────────────────────
+    # Formule : H = 0.5 * ln(2πe * σ²)  — entropie d'une gaussienne (nats)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+    fig.suptitle(
+        f"MCD — Entropie différentielle H = ½·ln(2πe·σ²) par image (T={T})",
+        fontsize=12, fontweight="bold", color=COLORS["title"]
+    )
+
+    for col, task in enumerate(ACTIVE_TASKS):
+        ax   = axes[col]
+        unit = TASK_UNITS[task]
+
+        valid = [r for r in results
+                 if _is_valid(r.get(f"std_{task}")) and r[f"std_{task}"] > 0]
+
+        if not valid:
+            ax.set_title(f"{task} — pas de données valides")
+            continue
+
+        def entropy(r):
+            return 0.5 * np.log(2 * np.pi * np.e * r[f"std_{task}"] ** 2)
+
+        valid_sorted = sorted(valid, key=entropy)
+        entropies    = [entropy(r) for r in valid_sorted]
+        indices      = list(range(len(valid_sorted)))
+        colors_pts   = [
+            COLORS["correct"] if r.get(f"correct_{task}") else COLORS["wrong"]
+            for r in valid_sorted
+        ]
+
+        ax.scatter(indices, entropies, c=colors_pts, alpha=0.6, s=10, linewidths=0)
+        ax.axhline(np.mean(entropies), color="#333333", ls="--", lw=1.3,
+                   label=f"H moyen = {np.mean(entropies):.4f} nats")
+
+        # Ligne de séparation corrects / incorrects
+        n_cor = sum(1 for r in valid_sorted if r.get(f"correct_{task}"))
+        n_inc = len(valid_sorted) - n_cor
+        if n_inc > 0 and n_cor > 0:
+            h_cor = np.mean([entropy(r) for r in valid_sorted if r.get(f"correct_{task}")])
+            h_inc = np.mean([entropy(r) for r in valid_sorted if not r.get(f"correct_{task}")])
+            ax.axhline(h_cor, color=COLORS["correct"], ls=":", lw=1.2,
+                       label=f"H moy corrects = {h_cor:.4f}")
+            ax.axhline(h_inc, color=COLORS["wrong"],   ls=":", lw=1.2,
+                       label=f"H moy incorrects = {h_inc:.4f}")
+
+        legend_elements = [
+            Patch(facecolor=COLORS["correct"], label=f"Correct (n={n_cor})"),
+            Patch(facecolor=COLORS["wrong"],   label=f"Incorrect (n={n_inc})"),
+        ]
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles=handles + legend_elements, fontsize=7)
+
+        ax.set_xlabel("Image (triée par entropie croissante)")
+        ax.set_ylabel("Entropie différentielle H (nats)")
+        ax.set_title(f"{task}")
+        ax.grid(True, color=COLORS["grid"], lw=0.7)
+        ax.spines[["top", "right"]].set_visible(False)
+
+    plt.tight_layout()
+    p = output_dir / "fig6_entropy.png"
+    plt.savefig(p, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"   ✅ {p.name}")
+
 
 # ════════════════════════════════════════════════════════════════════════════
-# 8. OPTIMISATION DU SEUIL µ  (version B corrigée + courbe version A)
+# 8. OPTIMISATION DU SEUIL µ — TURBIDITÉ + DO CÔTE À CÔTE (Figure 4)
 # ════════════════════════════════════════════════════════════════════════════
 
-def optimize_threshold(
+def _compute_threshold_table(
     results: List[Dict],
+    task: str,
     mu_values: List[float],
-    output_dir: Path,
-    global_mae: float = 0.041,
-    T: int | None = None,
 ) -> List[Dict]:
     """
-    Pour chaque µ : partitionne en Retained (STD ≤ µ) et Referred (STD > µ).
-
-    Génère :
-      - Tableau terminal
-      - fig4_threshold.png (courbe couverture vs MAE)
-
-    NOTE : µ opère sur la STD brute de turbidité (NTU), ce qui est
-    directement interprétable (pas de normalisation arbitraire).
-
-    Bug corrigé version B :
-      - Indentation incorrecte sur `cor_ref` / `inc_ref` causait un crash.
+    Calcule le tableau trade-off couverture/précision pour une tâche donnée.
+    Retourne une liste de dicts, un par valeur de µ.
     """
     valid = [
         r for r in results
-        if _is_valid(r.get("std_turbidity_NTU"))
-        and _is_valid(r.get("mae_turbidity_NTU"))
-        and r.get("correct_turbidity_NTU") is not None
+        if _is_valid(r.get(f"std_{task}"))
+        and _is_valid(r.get(f"mae_{task}"))
+        and r.get(f"correct_{task}") is not None
     ]
-    # Compatibilité clé (selon la task naming dans evaluate_mcd)
-    if not valid:
-        valid = [
-            r for r in results
-            if _is_valid(r.get("std_turbidity_NTU", r.get("std_turb")))
-            and _is_valid(r.get("mae_turbidity_NTU", r.get("mae_turb")))
-            and r.get("correct_turbidity_NTU", r.get("correct_turb")) is not None
-        ]
 
-    def _get(r, key, fallback_key):
-        return r.get(key, r.get(fallback_key))
-
-    N = len(valid)
+    N     = len(valid)
     table = []
 
-    print(f"\n{'='*70}")
-    print(f"  OPTIMISATION DU SEUIL µ  |  turbidité  |  n={N} images")
-    print(f"{'='*70}")
-    print(f"  {'µ':>5} | {'Ret':>5} | {'%Ret':>6} | {'Réf':>5} | "
-          f"{'MAE_ret':>8} | {'Cor_ret':>7} | {'Inc_ret':>7}")
-    print(f"  {'─'*62}")
-
     for mu in mu_values:
-        retained = [r for r in valid
-                    if _get(r, "std_turbidity_NTU", "std_turb") <= mu]
-        referred = [r for r in valid
-                    if _get(r, "std_turbidity_NTU", "std_turb") >  mu]
+        retained = [r for r in valid if r[f"std_{task}"] <= mu]
+        referred = [r for r in valid if r[f"std_{task}"] >  mu]
 
         n_ret   = len(retained)
         n_ref   = len(referred)
         pct_ret = 100.0 * n_ret / N if N else float("nan")
-        mae_ret = float(np.mean([_get(r, "mae_turbidity_NTU", "mae_turb")
-                                 for r in retained])) if retained else float("nan")
+        mae_ret = (float(np.mean([r[f"mae_{task}"] for r in retained]))
+                   if retained else float("nan"))
 
-        # ✅ CORRECTION BUG version B : toutes les variables dans le même bloc
-        cor_ret = sum(1 for r in retained
-                      if _get(r, "correct_turbidity_NTU", "correct_turb"))
-        inc_ret = sum(1 for r in retained
-                      if not _get(r, "correct_turbidity_NTU", "correct_turb"))
-        cor_ref = sum(1 for r in referred
-                      if _get(r, "correct_turbidity_NTU", "correct_turb"))
-        inc_ref = sum(1 for r in referred
-                      if not _get(r, "correct_turbidity_NTU", "correct_turb"))
-
-        mae_str = f"{mae_ret:>8.4f}" if _is_valid(mae_ret) else "     nan"
-        opt_flag = " ← optimal?" if pct_ret >= 70 else ""
-        print(f"  {mu:>5.2f} | {n_ret:>5} | {pct_ret:>5.1f}% | {n_ref:>5} | "
-              f"{mae_str} | {cor_ret:>7} | {inc_ret:>7}{opt_flag}")
+        cor_ret = sum(1 for r in retained if     r.get(f"correct_{task}"))
+        inc_ret = sum(1 for r in retained if not r.get(f"correct_{task}"))
+        cor_ref = sum(1 for r in referred if     r.get(f"correct_{task}"))
+        inc_ref = sum(1 for r in referred if not r.get(f"correct_{task}"))
 
         table.append({
             "mu": mu, "n_ret": n_ret, "n_ref": n_ref,
@@ -622,40 +655,97 @@ def optimize_threshold(
             "cor_ref": cor_ref, "inc_ref": inc_ref,
         })
 
-    print(f"{'='*70}")
+    return table
 
-    # ── Figure 4 : courbe couverture vs MAE ─────────────────────────────────
-    pct_list  = [r["pct_ret"] for r in table]
-    mae_list  = [r["mae_ret"] for r in table]
-    mu_labels = [f"µ={r['mu']:.2f}" for r in table]
 
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.plot(pct_list, mae_list, "o-",
-            color=COLORS["title"], lw=2, markersize=7, zorder=3)
+def optimize_threshold(
+    results: List[Dict],
+    mu_values: List[float],
+    output_dir: Path,
+    global_metrics: Dict,
+    T: int | None = None,
+) -> Dict[str, List[Dict]]:
+    """
+    Calcule et affiche les tables de seuil pour turbidité ET DO.
+    Génère fig4_threshold.png avec les deux courbes côte à côte.
 
-    for x, y, lbl in zip(pct_list, mae_list, mu_labels):
-        ax.annotate(lbl, (x, y),
-                    textcoords="offset points", xytext=(0, 10),
-                    ha="center", fontsize=7.5, color="#444")
+    Returns:
+        Dict {task: table} pour les deux tâches.
+    """
+    all_tables = {}
 
-    ax.axhline(global_mae, color=COLORS["correct"], ls="--", lw=1.3,
-               label=f"MAE global (sans seuil) = {global_mae:.3f} NTU")
-    ax.axvspan(70, 100, alpha=0.06, color="green", label="Zone ≥ 70% retained")
+    for task in ACTIVE_TASKS:
+        unit = TASK_UNITS[task]
+        N    = sum(
+            1 for r in results
+            if _is_valid(r.get(f"std_{task}"))
+            and _is_valid(r.get(f"mae_{task}"))
+            and r.get(f"correct_{task}") is not None
+        )
 
-    ax.set_xlabel("% images retenues (décision automatique)")
-    ax.set_ylabel("MAE turbidité sur images retenues (NTU)")
-    if T is None:
-        title_suffix = "Monte Carlo Dropout — Tilapia RAS"
-    else:
-        title_suffix = f"Monte Carlo Dropout (T={T}) — Tilapia RAS"
-    ax.set_title(
-        f"Seuil µ — Trade-off couverture / précision\n"
-        f"{title_suffix}",
-        fontsize=11, fontweight="bold", color=COLORS["title"]
+        table = _compute_threshold_table(results, task, mu_values)
+        all_tables[task] = table
+
+        print(f"\n{'='*70}")
+        print(f"  OPTIMISATION DU SEUIL µ  |  {task} ({unit})  |  n={N} images")
+        print(f"{'='*70}")
+        print(f"  {'µ':>5} | {'Ret':>5} | {'%Ret':>6} | {'Réf':>5} | "
+              f"{'MAE_ret':>8} | {'Cor_ret':>7} | {'Inc_ret':>7}")
+        print(f"  {'─'*62}")
+
+        for row in table:
+            mae_str  = f"{row['mae_ret']:>8.4f}" if _is_valid(row["mae_ret"]) else "     nan"
+            opt_flag = " ← optimal?" if row["pct_ret"] >= 70 else ""
+            print(f"  {row['mu']:>5.2f} | {row['n_ret']:>5} | {row['pct_ret']:>5.1f}% | "
+                  f"{row['n_ref']:>5} | {mae_str} | {row['cor_ret']:>7} | "
+                  f"{row['inc_ret']:>7}{opt_flag}")
+
+        print(f"{'='*70}")
+
+    # ── Figure 4 : Turbidité + DO côte à côte ───────────────────────────────
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    title_suffix = f"Monte Carlo Dropout (T={T}) — Tilapia RAS" if T else "Monte Carlo Dropout — Tilapia RAS"
+    fig.suptitle(
+        f"Seuil µ — Trade-off couverture / précision\n{title_suffix}",
+        fontsize=12, fontweight="bold", color=COLORS["title"]
     )
-    ax.legend(fontsize=9)
-    ax.grid(True, color=COLORS["grid"], lw=0.7)
-    ax.spines[["top", "right"]].set_visible(False)
+
+    task_colors = {
+        "turbidity_NTU": COLORS["title"],
+        "DO_mgL":        COLORS["do"],
+    }
+
+    for ax, task in zip(axes, ACTIVE_TASKS):
+        unit      = TASK_UNITS[task]
+        color     = task_colors[task]
+        table     = all_tables[task]
+        glo_mae   = global_metrics.get(task, {}).get("MAE", float("nan"))
+
+        pct_list  = [r["pct_ret"] for r in table]
+        mae_list  = [r["mae_ret"] for r in table]
+        mu_labels = [f"µ={r['mu']:.2f}" for r in table]
+
+        ax.plot(pct_list, mae_list, "o-", color=color,
+                lw=2, markersize=7, zorder=3)
+
+        for x, y, lbl in zip(pct_list, mae_list, mu_labels):
+            if _is_valid(y):
+                ax.annotate(lbl, (x, y),
+                            textcoords="offset points", xytext=(0, 10),
+                            ha="center", fontsize=7.5, color="#444")
+
+        if _is_valid(glo_mae):
+            ax.axhline(glo_mae, color=COLORS["correct"], ls="--", lw=1.3,
+                       label=f"MAE global = {glo_mae:.4f} {unit}")
+
+        ax.axvspan(70, 100, alpha=0.06, color="green", label="Zone ≥ 70% retained")
+
+        ax.set_xlabel("% images retenues (décision automatique)")
+        ax.set_ylabel(f"MAE sur images retenues ({unit})")
+        ax.set_title(f"{task}")
+        ax.legend(fontsize=9)
+        ax.grid(True, color=COLORS["grid"], lw=0.7)
+        ax.spines[["top", "right"]].set_visible(False)
 
     plt.tight_layout()
     p = output_dir / "fig4_threshold.png"
@@ -663,7 +753,7 @@ def optimize_threshold(
     plt.close()
     print(f"\n   ✅ {p.name}")
 
-    return table
+    return all_tables
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -674,18 +764,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Monte Carlo Dropout — Water Quality — Tilapia RAS"
     )
-    parser.add_argument("--T",   type=int,   default=50,
+    parser.add_argument("--T",          type=int,   default=50,
                         help="Nombre de passes stochastiques (défaut: 50)")
-    parser.add_argument("--mu",  type=float, default=None,
-                        help="Seuil µ unique (défaut: sweep 0.1→0.9)")
-    parser.add_argument("--checkpoint", type=str, default=str(CHECKPOINT_PATH),
+    parser.add_argument("--mu",         type=float, default=None,
+                        help="Seuil µ unique (défaut: sweep 0.05→0.95)")
+    parser.add_argument("--checkpoint", type=str,   default=str(CHECKPOINT_PATH),
                         help="Chemin vers best_model.pth")
     args = parser.parse_args()
 
     T          = args.T
     checkpoint = Path(args.checkpoint)
-    mu_values  = ([round(args.mu, 2)] if args.mu is not None
-                  else [round(x * 0.05, 2) for x in range(1, 20)])  # 0.05→0.95
+    mu_values  = (
+        [round(args.mu, 2)] if args.mu is not None
+        else [round(x * 0.05, 2) for x in range(1, 20)]   # 0.05 → 0.95
+    )
 
     OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -695,7 +787,7 @@ def main() -> None:
     print(f"  Checkpoint : {checkpoint}")
     print("=" * 65)
 
-    # ── 1. Modèle ────────────────────────────────────────────────────────────
+    # ── 1. Modèle ─────────────────────────────────────────────────────────
     print("\n1️⃣  Chargement du modèle...")
     if not checkpoint.exists():
         raise FileNotFoundError(
@@ -711,11 +803,11 @@ def main() -> None:
     print(f"   Epoch={ckpt.get('epoch','?')+1}  |  "
           f"val_loss={ckpt.get('val_loss','?'):.4f}")
 
-    # ── 2. Activer MCD ───────────────────────────────────────────────────────
+    # ── 2. Activer MCD ────────────────────────────────────────────────────
     print("\n2️⃣  Activation MCD...")
     model = enable_mcd(model)
 
-    # ── 3. TEST set ──────────────────────────────────────────────────────────
+    # ── 3. TEST set ───────────────────────────────────────────────────────
     print("\n3️⃣  Chargement TEST set...")
     project_root = Path(__file__).resolve().parent
     csv_path     = project_root / "processed" / "images_labels.csv"
@@ -733,62 +825,72 @@ def main() -> None:
     dataloaders  = create_dataloaders(
         csv_path=csv_path, dataset_root=dataset_root,
         preprocessor=preprocessor,
-        batch_size=8,    # petit batch recommandé (T passes par image)
-        num_workers=0,   # Windows-safe
+        batch_size=8,
+        num_workers=0,
     )
     test_loader = dataloaders["TEST"]
     print(f"   TEST : {len(test_loader.dataset)} images  |  "
           f"~{len(test_loader.dataset) * T // 1000}k forward passes total")
 
-    # ── 4. Sanity check ──────────────────────────────────────────────────────
+    # ── 4. Sanity check ───────────────────────────────────────────────────
     sanity_check_mcd(model, test_loader, T=min(20, T))
 
-    # ── 5. Inférence MCD ─────────────────────────────────────────────────────
+    # ── 5. Inférence MCD ──────────────────────────────────────────────────
     print(f"\n4️⃣  Inférence MCD sur {len(test_loader.dataset)} images (T={T})...")
     results = evaluate_mcd(model, test_loader, T=T)
 
-    # ── 6. Sauvegarde JSON ───────────────────────────────────────────────────
+    # ── 6. Sauvegarde JSON ────────────────────────────────────────────────
     json_path = OUTPUT_DIR / "mcd_results.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_safe(results), f, indent=2)
     print(f"\n   💾 {json_path}")
 
-    # ── 7. Métriques globales ─────────────────────────────────────────────────
+    # ── 7. Métriques globales ─────────────────────────────────────────────
     print("\n5️⃣  Métriques globales (MAE / RMSE / R²)...")
     global_metrics = compute_global_metrics(results)
-    global_mae_turb = global_metrics.get("turbidity_NTU", {}).get("MAE", 0.041)
 
-    # ── 8. Tableau correct/incorrect ─────────────────────────────────────────
+    # ── 8. Tableau correct/incorrect ──────────────────────────────────────
     print("\n6️⃣  Tableau de performances...")
     perf_stats = print_performance_table(results, T)
 
-    # ── 9. Graphiques ─────────────────────────────────────────────────────────
-    print("\n7️⃣  Génération des figures...")
-    plot_all(results, T, OUTPUT_DIR)
+    # ── 9. Figures 1, 2, 3, 5, 6 ─────────────────────────────────────────
+    print("\n7️⃣  Génération des figures (1, 2, 3, 5, 6)...")
+    plot_all(results, T, OUTPUT_DIR, global_metrics)
 
-    # ── 10. Optimisation µ ────────────────────────────────────────────────────
-    print("\n8️⃣  Optimisation du seuil µ...")
-    threshold_table = optimize_threshold(
-        results, mu_values, OUTPUT_DIR, global_mae=global_mae_turb, T=T
+    # ── 10. Figure 4 — seuil µ Turbidité + DO ────────────────────────────
+    print("\n8️⃣  Optimisation du seuil µ (Figure 4)...")
+    threshold_tables = optimize_threshold(
+        results, mu_values, OUTPUT_DIR, global_metrics, T=T
     )
 
-    # ── Résumé ────────────────────────────────────────────────────────────────
+    # ── Résumé ────────────────────────────────────────────────────────────
     turb = perf_stats.get("turbidity_NTU", {})
+    do   = perf_stats.get("DO_mgL", {})
+
     print(f"\n{'='*65}")
     print("  RÉSUMÉ FINAL")
     print(f"{'='*65}")
-    print(f"  MAE turbidité (MCD)     : {global_metrics.get('turbidity_NTU',{}).get('MAE', '?'):.4f} NTU")
-    print(f"  MAE DO        (MCD)     : {global_metrics.get('DO_mgL',{}).get('MAE', '?'):.4f} mg/L")
+    print(f"  MAE turbidité (MCD)     : {global_metrics.get('turbidity_NTU',{}).get('MAE','?'):.4f} NTU")
+    print(f"  R²  turbidité           : {global_metrics.get('turbidity_NTU',{}).get('R2','?'):.4f}")
+    print(f"  MAE DO        (MCD)     : {global_metrics.get('DO_mgL',{}).get('MAE','?'):.4f} mg/L")
+    print(f"  R²  DO                  : {global_metrics.get('DO_mgL',{}).get('R2','?'):.4f}")
     print(f"  % correct turb.         : {turb.get('pct_correct','?'):.1f}%  (seuil={TOLERANCES['turbidity_NTU']} NTU)")
+    print(f"  % correct DO            : {do.get('pct_correct','?'):.1f}%  (seuil={TOLERANCES['DO_mgL']} mg/L)")
     print(f"  STD moyen corrects      : {turb.get('cor_std','?'):.5f} NTU")
     print(f"  STD moyen incorrects    : {turb.get('inc_std','?'):.5f} NTU")
     print(f"\n  Fichiers → {OUTPUT_DIR}/")
-    for name in ["mcd_results.json", "fig1_std_histograms.png",
-                 "fig2_std_vs_mae.png", "fig3_predictions.png",
-                 "fig4_threshold.png"]:
+    for name in [
+        "mcd_results.json",
+        "fig1_std_histograms.png",
+        "fig2_std_vs_mae.png",
+        "fig3_predictions.png",
+        "fig4_threshold.png        ← Turbidité + DO côte à côte",
+        "fig5_std_per_image.png    ← STD par image de test",
+        "fig6_entropy.png          ← Entropie différentielle",
+    ]:
         print(f"    {name}")
     print(f"{'='*65}")
-    print("\n💡 Prochaine étape : analyser fig4_threshold.png → choisir µ optimal")
+    print("\n💡 Analyser fig4_threshold.png → choisir µ optimal pour chaque tâche")
 
 
 if __name__ == "__main__":
